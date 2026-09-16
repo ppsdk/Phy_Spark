@@ -1,0 +1,36 @@
+seed: 42
+
+model:
+  id: Qwen/Qwen3-VL-4B-Instruct
+  dtype: bf16
+  trust_remote_code: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules: all-linear
+
+data:
+  train_jsonl: data/train_sft.jsonl
+  media_root: data
+  num_frames: 16
+
+grounding:
+  lm_weight: 1.0
+  jepa_weight: 0.0
+  heads: []
+
+training:
+  output_dir: outputs/qwen3vl-4b-sft
+  learning_rate: 2.0e-5
+  num_train_epochs: 1
+  gradient_accumulation_steps: 8
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 2
+  gradient_checkpointing: true
+  bf16: true
+  optim: adamw_torch_fused
+  report_to: none

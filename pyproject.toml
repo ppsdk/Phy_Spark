@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phy-spark"
+version = "0.1.0"
+description = "PhysGround-Tune: transferable physical-state representation post-training for VLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.4",
+  "transformers>=4.57.0,<6",
+  "peft>=0.17.0",
+  "accelerate>=1.2.0",
+  "safetensors>=0.4.5",
+  "pyyaml>=6.0",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "av>=13.0",
+  "pillow>=10.4",
+  "tqdm>=4.66",
+]
+
+[tool.setuptools.packages.find]
+include = ["physground*"]

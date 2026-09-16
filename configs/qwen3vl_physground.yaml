@@ -1,0 +1,54 @@
+seed: 42
+
+model:
+  id: Qwen/Qwen3-VL-4B-Instruct
+  dtype: bf16
+  trust_remote_code: true
+  attn_implementation: null
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target_modules: all-linear
+
+data:
+  train_jsonl: data/train_physground.jsonl
+  eval_jsonl: null
+  media_root: data
+  num_frames: 16
+  system_prompt: You are a vision-language model reasoning about physical scenes.
+
+grounding:
+  lm_weight: 1.0
+  hidden_dropout: 0.05
+  jepa_weight: 0.0
+  jepa_dim: 0
+  heads:
+    - {name: moving, group: state, kind: classification, num_labels: 2, weight: 1.0}
+    - {name: contact, group: state, kind: classification, num_labels: 2, weight: 1.0}
+    - {name: support, group: state, kind: classification, num_labels: 2, weight: 1.0}
+    - {name: mass_rank, group: property, kind: classification, num_labels: 3, weight: 1.0}
+    - {name: friction_rank, group: property, kind: classification, num_labels: 3, weight: 1.0}
+    - {name: restitution, group: property, kind: regression, num_labels: 1, weight: 0.5}
+    - {name: contact_onset, group: delta, kind: classification, num_labels: 2, weight: 1.0}
+    - {name: delta_velocity, group: delta, kind: regression, num_labels: 3, weight: 0.5}
+
+training:
+  output_dir: outputs/qwen3vl-4b-physground
+  learning_rate: 2.0e-5
+  num_train_epochs: 1
+  max_steps: -1
+  gradient_accumulation_steps: 8
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 2
+  gradient_checkpointing: true
+  bf16: true
+  fp16: false
+  dataloader_num_workers: 0
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  optim: adamw_torch_fused
+  report_to: none
