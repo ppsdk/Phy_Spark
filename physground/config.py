@@ -6,6 +6,7 @@ from typing import Any
 
 VALID_HEAD_KINDS = {"classification", "regression", "bce"}
 VALID_HEAD_GROUPS = {"state", "property", "relation", "constraint", "delta"}
+VALID_POOLING_MODES = {"prompt_end", "prompt_mean"}
 
 
 @dataclass
@@ -56,7 +57,11 @@ class GroundingConfig:
     lm_weight: float = 1.0
     jepa_weight: float = 0.0
     jepa_dim: int = 0
+    jepa_source: str | None = None
+    jepa_feature_layer: str | None = None
     hidden_dropout: float = 0.0
+    pooling: str = "prompt_end"
+    head_hidden_dim: int = 0
 
     def __post_init__(self) -> None:
         names = [head.name for head in self.heads]
@@ -72,6 +77,16 @@ class GroundingConfig:
             raise ValueError("jepa_dim must be >=0")
         if self.jepa_weight > 0 and self.jepa_dim <= 0:
             raise ValueError("jepa_dim must be >0 when jepa_weight>0")
+        if self.jepa_weight > 0 and not self.jepa_source:
+            raise ValueError("jepa_source must identify the teacher checkpoint when jepa_weight>0")
+        if self.jepa_weight > 0 and not self.jepa_feature_layer:
+            raise ValueError("jepa_feature_layer must identify the cached teacher feature when jepa_weight>0")
+        if self.pooling not in VALID_POOLING_MODES:
+            raise ValueError(
+                f"Unsupported pooling mode: {self.pooling}. Expected one of {sorted(VALID_POOLING_MODES)}"
+            )
+        if self.head_hidden_dim < 0:
+            raise ValueError("head_hidden_dim must be >=0")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> GroundingConfig:
@@ -87,5 +102,11 @@ class GroundingConfig:
             lm_weight=float(data.get("lm_weight", 1.0)),
             jepa_weight=float(data.get("jepa_weight", 0.0)),
             jepa_dim=int(data.get("jepa_dim", 0)),
+            jepa_source=str(data["jepa_source"]) if data.get("jepa_source") else None,
+            jepa_feature_layer=(
+                str(data["jepa_feature_layer"]) if data.get("jepa_feature_layer") else None
+            ),
             hidden_dropout=float(data.get("hidden_dropout", 0.0)),
+            pooling=str(data.get("pooling", "prompt_end")),
+            head_hidden_dim=int(data.get("head_hidden_dim", 0)),
         )

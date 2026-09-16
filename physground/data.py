@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from .alignment import answer_boundary
 from .config import HeadSpec
 from .media import resolve_content
 from .utils import read_jsonl
@@ -49,12 +50,17 @@ class GroundingCollator:
         media_root: str | Path | None = None,
         num_frames: int | None = 16,
         system_prompt: str = "You are a vision-language model reasoning about physical scenes.",
+        jepa_enabled: bool = False,
     ) -> None:
         self.processor = processor
         self.head_specs = {h.name: h for h in head_specs}
+        self.delta_head_names = {
+            h.name for h in head_specs if h.group == "delta" and h.weight > 0
+        }
         self.media_root = media_root
         self.num_frames = num_frames
         self.system_prompt = system_prompt
+        self.jepa_enabled = bool(jepa_enabled)
 
     def _content(self, sample: dict[str, Any]) -> list[dict[str, Any]]:
         if "content" in sample:
@@ -123,13 +129,19 @@ class GroundingCollator:
         if answer is not None and str(answer) != "":
             full_messages = self._messages(content, answer=str(answer))
             model_inputs = self._encode(full_messages, add_generation_prompt=False)
+            boundary = answer_boundary(
+                prompt_inputs["input_ids"][0].tolist(),
+                model_inputs["input_ids"][0].tolist(),
+            )
             labels = model_inputs["input_ids"].clone()
-            labels[:, :prompt_len] = -100
+            labels[:, :boundary] = -100
             model_inputs["labels"] = labels
+            anchor_index = boundary - 1
         else:
             model_inputs = prompt_inputs
+            anchor_index = prompt_len - 1
 
-        model_inputs["anchor_index"] = torch.tensor([prompt_len - 1], dtype=torch.long)
+        model_inputs["anchor_index"] = torch.tensor([anchor_index], dtype=torch.long)
 
         target_values = sample.get("targets", {}) or {}
         target_masks = sample.get("target_masks", {}) or {}
@@ -153,16 +165,24 @@ class GroundingCollator:
         model_inputs["grounding_targets"] = grounding_targets
         model_inputs["grounding_masks"] = grounding_masks
 
+        teacher = self._load_teacher_delta(sample) if self.jepa_enabled else None
+        active_delta_target = any(
+            name in target_values
+            and float(target_masks.get(name, 1.0)) > 0
+            for name in self.delta_head_names
+        )
+        needs_delta = active_delta_target or (self.jepa_enabled and teacher is not None)
         delta = sample.get("delta")
-        if delta:
+        if needs_delta:
+            if not delta:
+                raise ValueError("Active delta supervision requires delta observations")
             if "t" not in delta or "tp" not in delta:
                 raise ValueError("delta must contain both 't' and 'tp' observations")
             model_inputs["delta_t_inputs"] = self._encode_delta_side(delta["t"])
             model_inputs["delta_tp_inputs"] = self._encode_delta_side(delta["tp"])
             model_inputs["delta_tau"] = torch.tensor([float(delta.get("tau", 0.0))], dtype=torch.float32)
 
-        teacher = self._load_teacher_delta(sample)
-        if teacher is not None:
+        if self.jepa_enabled and teacher is not None:
             model_inputs["teacher_delta"] = teacher
 
         return model_inputs

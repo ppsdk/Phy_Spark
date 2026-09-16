@@ -20,6 +20,8 @@ data:
 grounding:
   lm_weight: 1.0
   jepa_weight: 0.0
+  pooling: prompt_end
+  head_hidden_dim: 0
   heads: []
 
 training:
@@ -30,6 +32,7 @@ training:
   logging_steps: 10
   save_steps: 500
   save_total_limit: 2
+  eval_strategy: "no"
   gradient_checkpointing: true
   bf16: true
   optim: adamw_torch_fused

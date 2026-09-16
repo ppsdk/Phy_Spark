@@ -23,8 +23,12 @@ data:
 grounding:
   lm_weight: 1.0
   hidden_dropout: 0.05
+  pooling: prompt_end
+  head_hidden_dim: 512
   jepa_weight: 0.0
   jepa_dim: 0
+  jepa_source: null
+  jepa_feature_layer: null
   heads:
     - {name: moving, group: state, kind: classification, num_labels: 2, weight: 1.0}
     - {name: contact, group: state, kind: classification, num_labels: 2, weight: 1.0}
@@ -44,6 +48,8 @@ training:
   logging_steps: 10
   save_steps: 500
   save_total_limit: 2
+  eval_strategy: "no"
+  eval_steps: 100
   gradient_checkpointing: true
   bf16: true
   fp16: false

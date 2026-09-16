@@ -16,6 +16,8 @@ def grounding_config() -> GroundingConfig:
         ],
         jepa_weight=0.2,
         jepa_dim=2,
+        jepa_source="facebook/vjepa2-test",
+        jepa_feature_layer="encoder.final.mean_pool",
     )
 
 

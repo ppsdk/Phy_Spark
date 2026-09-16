@@ -15,8 +15,8 @@
 - Hugging Face `Transformers + PEFT + Trainer` 的统一 VLM LoRA 训练入口。
 - Qwen3-VL 与 InternVL3.5 **HF-format** 共用的 multimodal chat-template 数据通路。
 - 普通 QA / 物理 QA 的 LoRA SFT baseline。
-- 从“答案生成前”的 prompt-end hidden state 读取表示，避免辅助物理头直接使用答案 token。
-- 可配置的 state / property / relation / constraint / delta 分类或回归头。
+- 通过 token 公共前缀定位 prompt/answer 边界，并只池化因果安全的 prompt hidden state，避免辅助物理头使用答案 token。
+- 按 state / property / relation / constraint / delta 组织共享非线性投影子空间，再连接可配置分类或回归头。
 - `delta` 双观察时刻编码：分别编码截至 `t` 与 `t+τ` 的可见内容，再监督已观察到的状态变化。
 - 可选 V-JEPA 动态差分蒸馏接口：训练样本提供预计算的 `teacher_delta` 后即可启用 cosine loss；教师本身不在推理阶段使用。
 - 按字段 mask 的监督机制：数据源没有可靠标签时，不自动补标签，也不把缺失字段当负例。
@@ -30,16 +30,40 @@
 训练期模型输入仍然是视觉内容和文本问题：
 
 ```text
+主问题路径
 Video / Images + Question
-        ↓
-       VLM
-        ↓
-  prompt-end h_t
-   ↙    ↓     ↘
-state property delta heads
-        ↓
-  physical grounding losses
+          ↓
+    VLM backbone + LoRA
+          ↓
+last hidden states [B, L, H]
+          ↓  causal-safe prompt pooling
+       h_main [B, H]
+          ↓
+┌─────────┼───────────────┐
+│         │               │
+state   property   relation/constraint
+projector projector       projector
+[B,D]    [B,D]            [B,D]
+│         │               │
+└──── classification / regression heads
+
+动态路径（仅在当前样本存在有效 delta/JEPA 监督时执行）
+Observation t ── shared VLM ── h_t  [B,H]
+Observation t+τ ─ shared VLM ─ h_t+τ[B,H]
+                       ↓
+       DeltaEncoder([h_t+τ - h_t, τ])
+                       ↓
+                  h_delta [B,H]
+                   ↙          ↘
+          delta projector    JEPA projector
+              [B,D]             [B,D_j]
+                 ↓                  ↓
+           delta heads      cosine teacher loss
 ```
+
+两个 PhysGround 示例配置默认 `D = head_hidden_dim = 512`。同一语义组内的多个 head 共享 `LayerNorm(H) → Linear(H,D) → GELU → Dropout` 投影器，使相关标签先学习共同物理子空间；不同组不强迫共享最后的任务表示。设 `head_hidden_dim: 0` 可退化为直接在 `[B,H]` 上接线性头，作为参数量匹配或旧 checkpoint 兼容路径。
+
+纯 SFT 样本只执行主问题的一次 VLM 前向；只有存在有效 delta target 或启用且提供了 JEPA teacher 时，才额外编码 `t` 与 `t+τ`。因此动态监督仍约为三次 backbone 前向，但不会让无动态标签的样本无谓承担这部分计算。
 
 最终部署接口保持不变：
 
@@ -273,12 +297,37 @@ gradient_accumulation_steps: 8
 ```text
 outputs/.../
 ├── adapter/                 # PEFT LoRA adapter
-├── physground_heads.pt      # state/property/delta/JEPA heads
+├── physground_aux.safetensors # state/property/delta/JEPA modules
 ├── physground_config.json
 └── processor/
 ```
 
 benchmark 推理只需要 `adapter/`；辅助 heads 不参与普通 QA generation。
+
+### 表征池化与断点续训
+
+默认 `pooling: prompt_end` 使用答案生成前最后一个因果安全 token。代码会比较“带 generation prompt 的问题编码”和“包含答案的完整编码”的最长公共 token 前缀，据此同时确定 LM label mask 与物理表征锚点，避免不同 chat template 造成 prompt/answer 边界偏移。也可设为 `prompt_mean`，对不含答案的 prompt token 做 masked mean，作为架构消融。
+
+启用验证集时配置：
+
+```yaml
+data:
+  eval_jsonl: data/val_physground.jsonl
+training:
+  eval_strategy: steps
+  eval_steps: 100
+```
+
+续训可指定具体 checkpoint，或用 `true` 自动选择输出目录下编号最大的 checkpoint：
+
+```yaml
+training:
+  resume_from_checkpoint: true
+```
+
+checkpoint 会共同恢复可训练 LoRA、物理辅助模块、optimizer/scheduler 与 Trainer 状态。训练日志额外记录 `loss/lm`、`loss/<head>` 和可选 `loss/jepa`。
+
+包含稀疏辅助监督头时，多卡训练默认开启 `ddp_find_unused_parameters`，以允许不同样本只激活部分 head；纯 SFT 配置不会创建未使用的 delta encoder。恢复训练要求 checkpoint 与当前 heads、loss 权重、pooling、dropout 和 JEPA 设置完全一致，避免静默改变目标函数。
 
 ## 9. V-JEPA dynamic teacher
 
@@ -288,6 +337,8 @@ benchmark 推理只需要 `adapter/`；辅助 heads 不参与普通 QA generatio
 grounding:
   jepa_weight: 0.2
   jepa_dim: 1024
+  jepa_source: <exact-model-id-or-checkpoint-sha>
+  jepa_feature_layer: <exact-layer-and-pooling>
 ```
 
 样本提供：
@@ -302,7 +353,7 @@ grounding:
 {"teacher_delta_path": "jepa_cache/sample_0001.npy"}
 ```
 
-代码对 VLM 两端状态差分做 projection，再用 cosine distance 对齐 teacher difference。teacher target stop-gradient；推理时完全移除。
+代码对 VLM 两端状态差分做 projection，再用 cosine distance 对齐 teacher difference。teacher target stop-gradient；推理时完全移除。`jepa_source` 和 `jepa_feature_layer` 是启用蒸馏时必填的可复现性元数据；当前仓库不会自行下载、选择或混用 V-JEPA 2/2.1 checkpoint。
 
 ## 10. PhysBench 评测
 
@@ -505,7 +556,24 @@ Benchmarks:
 - IntPhys2: permanence / immutability / spatio-temporal continuity / solidity violation-of-expectation benchmark
 - Hugging Face Transformers multimodal chat templates
 - PEFT LoRA
-- Qwen3-VL
+- [Qwen3-VL](https://github.com/QwenLM/Qwen3-VL)
 - InternVL3.5 HF-format
+- [V-JEPA 2 / 2.1](https://github.com/facebookresearch/vjepa2)
 
 本仓库的目标是让**算法定义、数据标签边界和 benchmark protocol 分开**：模型可以换、数据源可以换，但不能为了“跑通”而把不确定的物理字段偷偷变成监督真值。
+
+## 17. 上游仓库与论文引用
+
+| 上游项目 | 本仓库中的角色 | 官方仓库 | 论文 |
+|---|---|---|---|
+| Qwen3-VL | 已配置并通过 Hugging Face multimodal API 加载的 VLM backbone | [QwenLM/Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) | [Qwen3-VL Technical Report, arXiv:2511.21631](https://arxiv.org/abs/2511.21631) |
+| V-JEPA 2 | 离线 `teacher_delta` 的预期教师来源之一；当前不在线加载教师 | [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2) | [V-JEPA 2, arXiv:2506.09985](https://arxiv.org/abs/2506.09985) |
+| V-JEPA 2.1 | 官方仓库已发布模型；本仓库尚未固定其特征层、缓存生成协议或完成实验验证 | [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2) | [V-JEPA 2.1, arXiv:2603.14482](https://arxiv.org/abs/2603.14482) |
+
+如果在论文中使用本仓库对应路径，请引用实际使用的 backbone 和 teacher：
+
+- Assran et al. *V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning*. arXiv:2506.09985, 2025.
+- Mur-Labadia et al. *V-JEPA 2.1: Unlocking Dense Features in Video Self-Supervised Learning*. arXiv:2603.14482, 2026.
+- Bai et al. *Qwen3-VL Technical Report*. arXiv:2511.21631, 2025.
+
+V-JEPA 2 与 2.1 不应同时机械引用：实验采用哪个 teacher checkpoint，就引用对应论文，并在实验配置中记录具体 checkpoint、特征层、输入帧策略和缓存版本。本仓库自身尚无已发表论文，因此不提供虚构的项目论文引用。

@@ -224,7 +224,14 @@ def validate_training_config(config: dict[str, Any]) -> GroundingConfig:
     num_frames = config["data"].get("num_frames", 16)
     if not isinstance(num_frames, int) or isinstance(num_frames, bool) or num_frames < 1:
         raise ValueError("data.num_frames must be a positive integer")
-    return GroundingConfig.from_dict(config.get("grounding"))
+    grounding = GroundingConfig.from_dict(config.get("grounding"))
+    if (
+        grounding.lm_weight <= 0
+        and grounding.jepa_weight <= 0
+        and not any(head.weight > 0 for head in grounding.heads)
+    ):
+        raise ValueError("training config enables no positive-weight objective")
+    return grounding
 
 
 def main() -> None:
