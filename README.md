@@ -86,17 +86,17 @@ L = λ_lm L_lm
 
 ## 3. 安装
 
-建议 Python 3.10+、CUDA 环境和较新的 PyTorch。
+建议使用 Conda 管理 Python 3.10+ 环境。GPU 训练还需要与本机驱动兼容的 CUDA/PyTorch 组合。
 
 ```bash
 git clone https://github.com/ppsdk/Phy_Spark.git
 cd Phy_Spark
 
-python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .
+conda env create -f environment.yml
+conda activate phy-spark
 ```
+
+依赖更新后可执行 `conda env update -f environment.yml --prune`。仓库不要求在项目目录内创建 `venv`；Python 依赖由 `pyproject.toml` 统一声明，并在创建 Conda 环境时以 editable 模式安装。
 
 Qwen3-VL 需要较新的 Transformers；本项目依赖写为 `transformers>=4.57,<6`。如果某个最新 checkpoint 明确要求更新版本，请优先遵循该 checkpoint 的模型卡。
 
@@ -105,6 +105,7 @@ Qwen3-VL 需要较新的 Transformers；本项目依赖写为 `transformers>=4.5
 ```text
 Phy_Spark/
 ├── README.md
+├── environment.yml
 ├── requirements.txt
 ├── pyproject.toml
 ├── train.py
