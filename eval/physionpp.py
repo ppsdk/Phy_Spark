@@ -10,7 +10,6 @@ from tqdm import tqdm
 from physground.inference import generate_response, load_runtime
 from physground.utils import parse_binary, read_jsonl, write_jsonl
 
-
 PROMPT = (
     "You are shown only the observable prefix of a Physion++ trial. Based on the motion and interaction history, "
     "predict whether the red target object will contact the yellow target object after the prediction point. "

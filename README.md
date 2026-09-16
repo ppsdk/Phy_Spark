@@ -1,5 +1,7 @@
 # Phy_Spark / PhysGround-Tune
 
+[![CI](https://github.com/ppsdk/Phy_Spark/actions/workflows/ci.yml/badge.svg)](https://github.com/ppsdk/Phy_Spark/actions/workflows/ci.yml)
+
 **PhysGround-Tune** 是一个面向视觉语言模型（VLM）的物理状态表征后训练代码库。目标不是重新搭建物理模拟器，而是复用 CLEVRER、Physion++ 与公开 PhysInOne 训练数据中已经存在、可核验的物理真值，把 **object state、latent physical property、physical relation、multi-horizon state change** 直接监督到 VLM 的中间表示，并与普通物理 QA LoRA SFT 做公平比较。
 
 首版代码围绕以下研究问题实现：
@@ -142,6 +144,20 @@ Phy_Spark/
   }
 }
 ```
+
+提交训练任务前可先做不加载模型权重的数据预检：
+
+```bash
+python scripts/validate_manifest.py examples/train_example.jsonl \
+  --config configs/qwen3vl_physground.yaml
+
+# 提供 media-root 时还会检查本地媒体和 teacher cache 是否存在
+python scripts/validate_manifest.py data/train_physground.jsonl \
+  --config configs/qwen3vl_physground.yaml \
+  --media-root data
+```
+
+预检会核对 head 名称、分类标签范围、回归向量维度、mask、delta 两端、V-JEPA teacher 维度及媒体路径。`train.py` 在下载或加载模型权重前也会执行同一检查。
 
 ### 5.1 字段语义
 

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
-import av
-import numpy as np
+from urllib.parse import urlparse
 
 
 def _resolve_path(path: str | Path, root: str | Path | None) -> str:
@@ -14,13 +12,22 @@ def _resolve_path(path: str | Path, root: str | Path | None) -> str:
     return str(p)
 
 
+def _is_remote_uri(value: str | Path) -> bool:
+    if not isinstance(value, str):
+        return False
+    return urlparse(value).scheme.lower() in {"http", "https", "data"}
+
+
 def decode_video_segment(
     path: str | Path,
     start_frame: int | None = None,
     end_frame: int | None = None,
     num_frames: int | None = None,
-) -> np.ndarray:
+) -> Any:
     """Decode a video segment to uint8 [T,H,W,3]. end_frame is exclusive."""
+    import av
+    import numpy as np
+
     path = str(path)
     start = max(int(start_frame or 0), 0)
     frames: list[np.ndarray] = []
@@ -62,8 +69,14 @@ def resolve_content(
 
         # A list of image paths can be passed as a decoded-frame video source.
         if isinstance(raw_path, list):
-            paths = [_resolve_path(p, media_root) for p in raw_path]
+            paths = [p if _is_remote_uri(p) else _resolve_path(p, media_root) for p in raw_path]
             out.append({"type": typ, "path": paths})
+            continue
+
+        if _is_remote_uri(raw_path):
+            if any(key in item for key in ("start_frame", "end_frame", "num_frames")):
+                raise ValueError("Frame-range decoding requires a local video path")
+            out.append({"type": typ, "url": str(raw_path)})
             continue
 
         path = _resolve_path(raw_path, media_root)

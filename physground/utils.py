@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 import random
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
-
-import numpy as np
-import torch
+from typing import Any
 
 
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -43,6 +41,9 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
 
 
 def set_seed(seed: int) -> None:
+    import numpy as np
+    import torch
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

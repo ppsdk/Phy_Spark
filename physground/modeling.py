@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
+from torch import nn
 from transformers import AutoProcessor
 
 from .config import GroundingConfig, HeadSpec

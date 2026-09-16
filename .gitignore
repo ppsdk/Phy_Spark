@@ -3,7 +3,16 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 .DS_Store
+build/
+dist/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
 outputs/
 results/
 checkpoints/

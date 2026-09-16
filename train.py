@@ -6,11 +6,11 @@ from pathlib import Path
 import torch
 from transformers import TrainingArguments
 
-from physground.config import GroundingConfig
 from physground.data import CanonicalPhysicalDataset, GroundingCollator
 from physground.modeling import PhysGroundModel, attach_lora, load_base_model, load_processor
 from physground.trainer import PhysGroundTrainer
 from physground.utils import load_yaml, set_seed
+from physground.validation import validate_manifest_rows, validate_training_config
 
 
 def parse_args():
@@ -22,13 +22,34 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_yaml(args.config)
+    grounding_cfg = validate_training_config(cfg)
     seed = int(cfg.get("seed", 42))
     set_seed(seed)
 
     model_cfg = cfg["model"]
     data_cfg = cfg["data"]
     train_cfg = cfg.get("training", {})
-    grounding_cfg = GroundingConfig.from_dict(cfg.get("grounding"))
+
+    train_dataset = CanonicalPhysicalDataset(data_cfg["train_jsonl"])
+    manifest_errors = validate_manifest_rows(
+        train_dataset.rows,
+        grounding=grounding_cfg,
+        media_root=data_cfg.get("media_root"),
+    )
+    if manifest_errors:
+        preview = "\n".join(f"- {error}" for error in manifest_errors[:20])
+        raise ValueError(f"Invalid training manifest ({len(manifest_errors)} errors):\n{preview}")
+    eval_dataset = None
+    if data_cfg.get("eval_jsonl"):
+        eval_dataset = CanonicalPhysicalDataset(data_cfg["eval_jsonl"])
+        eval_errors = validate_manifest_rows(
+            eval_dataset.rows,
+            grounding=grounding_cfg,
+            media_root=data_cfg.get("media_root"),
+        )
+        if eval_errors:
+            preview = "\n".join(f"- {error}" for error in eval_errors[:20])
+            raise ValueError(f"Invalid evaluation manifest ({len(eval_errors)} errors):\n{preview}")
 
     model_id = model_cfg["id"]
     processor = load_processor(model_id, trust_remote_code=bool(model_cfg.get("trust_remote_code", True)))
@@ -49,11 +70,6 @@ def main():
     if hasattr(base, "print_trainable_parameters"):
         base.print_trainable_parameters()
     model = PhysGroundModel(base, grounding_cfg)
-
-    train_dataset = CanonicalPhysicalDataset(data_cfg["train_jsonl"])
-    eval_dataset = None
-    if data_cfg.get("eval_jsonl"):
-        eval_dataset = CanonicalPhysicalDataset(data_cfg["eval_jsonl"])
 
     collator = GroundingCollator(
         processor=processor,

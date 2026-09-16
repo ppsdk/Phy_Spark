@@ -11,7 +11,6 @@ from tqdm import tqdm
 from physground.inference import generate_response, load_runtime
 from physground.utils import parse_binary, write_jsonl
 
-
 PROMPT = (
     "Analyze the video as a physical event. Ignore rendering quality and playback speed. "
     "Is the object behavior physically plausible under ordinary Earth physics? Answer only Yes or No."

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +11,6 @@ from tqdm import tqdm
 
 from physground.inference import extract_prompt_representation, load_runtime
 from physground.utils import read_jsonl, write_jsonl
-
 
 QUERY = "Encode the observed physical interaction history for future object-contact prediction."
 
@@ -47,6 +45,8 @@ def extract(rows, model, processor, root, num_frames):
         props.append(str(row.get("property") or "unknown"))
         ids.append(row.get("row_id"))
         kept_rows.append(row)
+    if not feats:
+        raise ValueError("No labeled Physion++ samples were available for representation extraction")
     return np.stack(feats), np.asarray(labels), np.asarray(props), ids, kept_rows
 
 
@@ -67,7 +67,7 @@ def main():
     tr = read_jsonl(args.readout_manifest)
     te = read_jsonl(args.test_manifest)
     x_tr, y_tr, p_tr, _, _ = extract(tr, model, processor, args.readout_root, args.num_frames)
-    x_te, y_te, p_te, ids_te, rows_te = extract(te, model, processor, args.test_root, args.num_frames)
+    x_te, y_te, p_te, _, rows_te = extract(te, model, processor, args.test_root, args.num_frames)
 
     predictions = np.full(len(y_te), -1, dtype=int)
     metrics = {}
